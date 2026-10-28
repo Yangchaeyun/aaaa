@@ -113,7 +113,7 @@ with tab_timer:
             st.session_state.running = True
             st.rerun()
     with b2:
-        if st.button("⏸ 일시정지", use_container_width=True,
+        if st.button("⏸ 일시정지", use_container_width=True, key="study_timer_pause",
                      disabled=not st.session_state.running):
             st.session_state.elapsed_before_pause += (datetime.now() - st.session_state.started_at).total_seconds()
             st.session_state.started_at = None
@@ -266,7 +266,7 @@ with tab_pomodoro:
             st.session_state.pomodoro_running = True
             st.rerun()
     with p2:
-        if st.button("⏸ 일시정지", use_container_width=True, disabled=not st.session_state.pomodoro_running):
+        if st.button("⏸ 일시정지", use_container_width=True, key="pomodoro_timer_pause", disabled=not st.session_state.pomodoro_running):
             st.session_state.pomodoro_paused_seconds += (datetime.now() - st.session_state.pomodoro_started_at).total_seconds()
             st.session_state.pomodoro_started_at = None
             st.session_state.pomodoro_running = False
