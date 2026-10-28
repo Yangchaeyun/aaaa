@@ -1,3 +1,35 @@
+import json
+from datetime import date, datetime, timedelta
+from io import StringIO
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
+st.set_page_config(page_title="공부 밸런스 트래커", page_icon="📚", layout="wide")
+
+DEFAULT_SUBJECTS = ["수학", "영어", "국어", "과학", "사회", "기타"]
+DEFAULT_GOALS = {subject: 120 for subject in DEFAULT_SUBJECTS}  # minutes per day
+
+def init_state():
+    defaults = {
+        "subjects": DEFAULT_SUBJECTS.copy(),
+        "goals": DEFAULT_GOALS.copy(),
+        "sessions": [],
+        "active_subject": DEFAULT_SUBJECTS[0],
+        "running": False,
+        "started_at": None,
+        "elapsed_before_pause": 0,
+        "pomodoro_mode": "집중 25분",
+        "pomodoro_started_at": None,
+        "pomodoro_paused_seconds": 0,
+        "pomodoro_running": False,
         "daily_target": 6,
     }
     for key, value in defaults.items():
@@ -190,3 +222,98 @@ with tab_goals:
             )
     if st.button("목표 저장", type="primary"):
         st.session_state.goals.update(goal_values)
+        st.success("과목별 목표를 저장했어요.")
+    st.divider()
+    st.markdown("**계산식 시각화**")
+    st.latex(r"\text{과목별 달성률} = \frac{\text{실제 공부 시간}}{\text{목표 공부 시간}} \times 100\%")
+    st.latex(r"\text{D-Day까지 필요한 하루 공부량} = \frac{\text{남은 목표 공부량}}{\text{남은 날짜 수}}")
+    st.caption("현재 기록만으로 남은 전체 공부량을 추정할 수는 없으므로, 아래 그래프는 하루 목표 시간과 오늘 실제 시간을 비교합니다.")
+    today = get_today_df()
+    minutes_by_subject = today.groupby("subject")["minutes"].sum().to_dict() if not today.empty else {}
+    rows = []
+    for subject in st.session_state.subjects:
+        goal = float(st.session_state.goals.get(subject, 120))
+        actual = float(minutes_by_subject.get(subject, 0))
+        rows.append({"과목": subject, "목표(분)": goal, "실제(분)": actual,
+                     "달성률(%)": actual / goal * 100 if goal > 0 else 0})
+    goal_chart = pd.DataFrame(rows)
+    fig = px.scatter(goal_chart, x="목표(분)", y="실제(분)", text="과목", size="달성률(%)",
+                     title="목표 시간과 실제 공부 시간의 관계")
+    maxval = max(60, float(goal_chart[["목표(분)", "실제(분)"]].max().max()))
+    fig.add_trace(go.Scatter(x=[0, maxval], y=[0, maxval], mode="lines",
+                             name="목표 달성선", line=dict(dash="dash")))
+    fig.update_traces(textposition="top center")
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab_pomodoro:
+    st.subheader("🍅 뽀모도로 타이머")
+    mode = st.radio("모드", ["집중 25분", "짧은 휴식 5분", "긴 휴식 15분"], horizontal=True,
+                    index=["집중 25분", "짧은 휴식 5분", "긴 휴식 15분"].index(st.session_state.pomodoro_mode))
+    st.session_state.pomodoro_mode = mode
+    durations = {"집중 25분": 25 * 60, "짧은 휴식 5분": 5 * 60, "긴 휴식 15분": 15 * 60}
+    duration = durations[mode]
+    elapsed = st.session_state.pomodoro_paused_seconds
+    if st.session_state.pomodoro_running and st.session_state.pomodoro_started_at:
+        elapsed += (datetime.now() - st.session_state.pomodoro_started_at).total_seconds()
+    remaining = max(0, int(duration - elapsed))
+    st.markdown(f"<h1 style='text-align:center;font-size:64px'>{format_seconds(remaining)}</h1>", unsafe_allow_html=True)
+    st.progress(min(elapsed / duration, 1.0))
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        if st.button("▶ 뽀모도로 시작", type="primary", use_container_width=True,
+                     disabled=st.session_state.pomodoro_running or remaining == 0):
+            st.session_state.pomodoro_started_at = datetime.now()
+            st.session_state.pomodoro_running = True
+            st.rerun()
+    with p2:
+        if st.button("⏸ 일시정지", use_container_width=True, disabled=not st.session_state.pomodoro_running):
+            st.session_state.pomodoro_paused_seconds += (datetime.now() - st.session_state.pomodoro_started_at).total_seconds()
+            st.session_state.pomodoro_started_at = None
+            st.session_state.pomodoro_running = False
+            st.rerun()
+    with p3:
+        if st.button("↺ 초기화", use_container_width=True):
+            st.session_state.pomodoro_started_at = None
+            st.session_state.pomodoro_paused_seconds = 0
+            st.session_state.pomodoro_running = False
+            st.rerun()
+    if remaining == 0:
+        st.success("시간이 끝났어요! 다음 모드로 전환하거나 타이머를 초기화하세요.")
+    elif st.session_state.pomodoro_running:
+        st.caption("시간 표시를 갱신하려면 아래 버튼을 누르세요.")
+        st.button("🔄 시간 갱신", key="pomodoro_refresh", on_click=st.rerun)
+
+with tab_coach:
+    st.subheader("✨ Gemini AI 학습 코치")
+    st.write("오늘 공부 기록을 바탕으로 균형 잡힌 학습 계획과 개선점을 제안받을 수 있어요.")
+    api_key = None
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        api_key = None
+    if not api_key:
+        st.warning("Gemini 기능을 사용하려면 Streamlit Secrets에 `GEMINI_API_KEY`를 설정하세요. 나머지 앱 기능은 키 없이 작동합니다.")
+    if st.button("학습 분석 요청", type="primary", disabled=not bool(api_key)):
+        if genai is None:
+            st.error("google-genai 라이브러리를 찾을 수 없어요. requirements.txt를 확인하세요.")
+        else:
+            today = get_today_df()
+            summary = today.groupby("subject")["minutes"].sum().round(1).to_dict() if not today.empty else {}
+            goals = {s: st.session_state.goals.get(s, 120) for s in st.session_state.subjects}
+            prompt = (
+                "너는 친절한 한국어 학습 코치야. 아래 학습 기록을 바탕으로 현실적인 피드백을 작성해줘. "
+                "1) 잘한 점 2) 과목 균형 분석 3) 내일의 구체적인 계획 4) 무리하지 않는 조언 순서로 답해줘. "
+                "기록에 없는 사실은 추측하지 마.\n"
+                f"오늘 과목별 공부 시간(분): {json.dumps(summary, ensure_ascii=False)}\n"
+                f"과목별 하루 목표(분): {json.dumps(goals, ensure_ascii=False)}\n"
+                f"전체 일일 목표(시간): {st.session_state.daily_target}"
+            )
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+                st.markdown(response.text or "응답을 받지 못했어요.")
+            except Exception as exc:
+                st.error(f"Gemini 요청에 실패했어요. API 키와 사용량 설정을 확인하세요. ({type(exc).__name__})")
+
+st.divider()
+st.caption("공부 시간은 기록 보조용이며, 성적이나 학습 성과를 보장하지 않습니다.")
