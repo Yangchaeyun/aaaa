@@ -91,11 +91,7 @@ with tab_timer:
     with c1:
         selected = st.selectbox(
             "공부할 과목",
-            st.session_state.subjects,
-            index=(
-                st.session_state.subjects.index(st.session_state.active_subject)
-                if st.session_state.active_subject in st.session_state.subjects
-                else 0
-            ),
-          disabled=st.session_state.running,
+            options=st.session_state.subjects,
+            index=0,
+            key="subject_select",
         )
