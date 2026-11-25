@@ -94,3 +94,5 @@ tab_timer, tab_dashboard, tab_goals, tab_pomodoro = st.tabs(
 )
 
 with tab_timer:
+    st.subheader("과목 선택 후 시작 / 일시정지 / 종료")
+    c1, c2 = st.columns([2, 1])
