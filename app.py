@@ -60,11 +60,12 @@ def all_df():
 
 st.title("📚 공부 밸런스 트래커")
 st.caption("과목별 공부 시간 측정 · 뽀모도로 · 목표 달성률 · Plotly 시각화")
+st.info("기록은 현재 브라우저 세션에 저장됩니다. 브라우저 세션이 초기화되기 전에 CSV를 내려받아 보관하세요.")
 
 with st.sidebar:
     st.header("⚙️ 설정")
     new_subject = st.text_input("과목 추가", placeholder="예: 정보")
-    if st.button("과목 추가하기", use_container_width=True):
+    if st.button("과목 추가하기", key="add_subject_button", use_container_width=True):
         name = new_subject.strip()
         if name and name not in st.session_state.subjects:
             st.session_state.subjects.append(name)
@@ -93,4 +94,3 @@ with tab_timer:
             index=st.session_state.subjects.index(st.session_state.active_subject)
             if st.session_state.active_subject in st.session_state.subjects else 0,
             disabled=st.session_state.running
-        )
