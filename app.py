@@ -90,7 +90,12 @@ with tab_timer:
     c1, c2 = st.columns([2, 1])
     with c1:
         selected = st.selectbox(
-            "공부할 과목", st.session_state.subjects,
-            index=st.session_state.subjects.index(st.session_state.active_subject)
-            if st.session_state.active_subject in st.session_state.subjects else 0,
-            disabled=st.session_state.running
+            "공부할 과목",
+            st.session_state.subjects,
+            index=(
+                st.session_state.subjects.index(st.session_state.active_subject)
+                if st.session_state.active_subject in st.session_state.subjects
+                else 0
+            ),
+            disabled=st.session_state.running,
+        )
