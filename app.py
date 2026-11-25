@@ -97,5 +97,5 @@ with tab_timer:
                 if st.session_state.active_subject in st.session_state.subjects
                 else 0
             ),
-            disabled=st.session_state.running,
+          disabled=st.session_state.running,
         )
